@@ -2,6 +2,14 @@
 
 
 
+if [ -t 1 ];then
+    IS_TERMINAL=true
+else
+    IS_TERMINAL=false
+fi
+
+
+
 LOG_DIR="/var/log/backups"
 
 if [ "$EUID" -eq 0 ];then
@@ -35,9 +43,12 @@ log(){
 }
 
 banner(){
-    echo "*******************************"
-    echo "This is a simple backup script."
-    echo "*******************************"
+
+    if $IS_TERMINAL ;then
+        echo "*******************************"
+        echo "This is a simple backup script."
+        echo "*******************************"
+    fi
 }
 
 
@@ -51,13 +62,15 @@ get_backup(){
     username=$6
     port=$7
 
-    echo "********************************"
-    echo "[*] Starting Backup for $general_title [$title]"
-    echo "[*] IP:PORT -> $ip:$port"
-    echo "[*] User name -> $username"
-    echo "[*] src-> $src"
-    echo "[*] dst-> $dst"
+    if $IS_TERMINAL;then
 
+        echo "********************************"
+        echo "[*] Starting Backup for $general_title [$title]"
+        echo "[*] IP:PORT -> $ip:$port"
+        echo "[*] User name -> $username"
+        echo "[*] src-> $src"
+        echo "[*] dst-> $dst"
+    fi
     # Starting backup
 
     rsync -ar -e "ssh -p $port" ${username}@${ip}:${src} $dst
@@ -94,8 +107,10 @@ check_host(){
 process_configs(){
     
     local config_file=$1
-    echo "[*] Proccessing [$1]"
 
+    if $IS_TERMINAL;then
+        echo "[*] Proccessing [$1]"
+    fi
     general_title=$(jq -r '.title' $config_file )
     titles=$(jq -r 'to_entries[] | select(.value | type == "object") | .key' $config_file)
     ip=$(jq -r '.ip' $config_file)
@@ -121,11 +136,17 @@ read_config(){
     local json_files=( /home/gameover/bin/scripts/backup_script/*.json )
     
     if [ ${#json_files[@]} -eq 0 ];then
-        echo "[0] Json file found."
-        shopt -u nullglob
-        exit 1
+        
+        if $IS_TERMINAL;then
+            echo "[0] Json file found."
+            shopt -u nullglob
+            exit 1
+        fi
+
     else
-        echo "[*] Found ${#json_files[@]} file"
+        if $IS_TERMINAL;then
+            echo "[*] Found ${#json_files[@]} file"
+        fi
     fi
 
     for name in ${json_files[@]};do
