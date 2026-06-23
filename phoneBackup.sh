@@ -2,6 +2,38 @@
 
 
 
+LOG_DIR="/var/log/backups"
+
+if [ "$EUID" -eq 0 ];then
+    LOG_DIR="/var/log/backups"
+else
+    LOG_DIR="$HOME/.local/var/backups"
+fi
+
+LOG_FILE="$LOG_DIR/backup_script.log"
+
+
+
+setup_logging(){
+    mkdir -p "$LOG_DIR"
+    touch "$LOG_FILE"
+
+    if [ $? -ne 0 ];then
+        echo "ERROR : Cannot create log directory at $LOG_DIR"
+        exit 1
+    fi
+}
+
+log(){
+    local level=$1
+    shift        # Remove first arg, in $@
+    local message="$@"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+    echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
+    echo "[$timestamp] [$level] $message"
+}
+
 banner(){
     echo "*******************************"
     echo "This is a simple backup script."
@@ -28,15 +60,33 @@ get_backup(){
 
     # Starting backup
 
-    rsync -av --progress -e 'ssh -p 1111' ${username}@${ip}:${src} $dst
+    rsync -ar -e 'ssh -p 1111' ${username}@${ip}:${src} $dst
 
 
     if [ $? -eq 0 ]; then
-        echo "[✓] Backup completed successfully for [$title]"
+        log "INFO" "Backup completed successfully for [$title]"
         return 0
     else
-        echo "[✗] ERROR: Backup FAILED for [$title]" >&2
+        log "ERROR" "Backup FAILED for $title"
         return 1
+    fi
+
+}
+
+
+check_host(){
+    
+    local ip=$1
+    local port=$2
+
+    nc -w 5 -z $ip $port 2>/dev/null
+
+    if [ $? != 0 ];then
+        log "ERROR" "Connection refused to $ip:$port"
+        return 1
+    else
+        log "INFO" "$ip:$port connected."
+        return 0
     fi
 
 }
@@ -51,6 +101,10 @@ process_configs(){
     ip=$(jq -r '.ip' $config_file)
     username=$(jq -r '.username' $config_file)
     port=$(jq -r '.port' $config_file)
+    
+
+    # Check IP and PORT
+    check_host $ip $port
 
     for title in ${titles[@]};do
         
@@ -64,7 +118,7 @@ read_config(){
     
     shopt -s nullglob
 
-    local json_files=( *.json )
+    local json_files=( /home/gameover/bin/scripts/backup_script/*.json )
     
     if [ ${#json_files[@]} -eq 0 ];then
         echo "[0] Json file found."
@@ -86,9 +140,11 @@ read_config(){
 
 main(){
     
+    setup_logging
+    log "INFO" "Backup script started"
     banner
     read_config
-
+    log "INFO" "Backup script finished"
 
 }
 
