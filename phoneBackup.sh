@@ -8,10 +8,6 @@ else
     IS_TERMINAL=false
 fi
 
-
-
-LOG_DIR="/var/log/backups"
-
 if [ "$EUID" -eq 0 ];then
     LOG_DIR="/var/log/backups"
 else
@@ -19,14 +15,33 @@ else
 fi
 
 LOG_FILE="$LOG_DIR/backup_script.log"
+LOCK_FILE="/tmp/phoneBackup.lock"
+
+
 
 
 echo_terminal(){
-    
     if $IS_TERMINAL;then
         echo $1
     fi
+}
 
+cleanup(){
+    rm -f $LOCK_FILE
+    echo_terminal "[*] Lock file removed."
+}
+
+lock_script(){
+    
+    if [ -f $LOCK_FILE ];then
+        lock_pid=$(cat $LOCK_FILE)
+        echo_terminal "Error: Script is already running under PID: $lock_pid"
+        log "ERROR" "[-] Script is already running under PID: $lock_pid"
+        trap - EXIT SIGINT SIGTERM 
+        exit 1
+    fi
+
+    echo "$$" > $LOCK_FILE
 }
 
 setup_logging(){
@@ -46,16 +61,12 @@ log(){
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
     echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
-    echo "[$timestamp] [$level] $message"
 }
 
-banner(){
-
-    
-    echo_termianl "*******************************"
-    echo_termianl "This is a simple backup script."
-    echo_termianl "*******************************"
-    
+banner(){    
+    echo_terminal "*******************************"
+    echo_terminal "This is a simple backup script."
+    echo_terminal "*******************************"
 }
 
 
@@ -113,7 +124,6 @@ process_configs(){
     
     local config_file=$1
 
-
     echo_terminal "[*] Proccessing [$1]"
 
     general_title=$(jq -r '.title' $config_file )
@@ -122,12 +132,10 @@ process_configs(){
     username=$(jq -r '.username' $config_file)
     port=$(jq -r '.port' $config_file)
     
-
     # Check IP and PORT
     check_host $ip $port
 
     for title in ${titles[@]};do
-        
         src=$(jq -r ".\"$title\".src" $config_file)
         dst=$(jq -r ".\"$title\".dst" $config_file)
         get_backup $general_title $title $src $dst $ip $username $port
@@ -137,40 +145,36 @@ process_configs(){
 read_config(){
     
     shopt -s nullglob
-
     local json_files=( /home/gameover/bin/scripts/backup_script/*.json )
     
+
     if [ ${#json_files[@]} -eq 0 ];then
-    
         echo_terminal "[0] Json file found."
         shopt -u nullglob
         exit 1
-
-
-    else
-        
+    else    
         echo_terminal "[*] Found ${#json_files[@]} file"
-        
     fi
 
     for name in ${json_files[@]};do
        process_configs "$name"
     done
 
-
-
     shopt -u nullglob
 }
 
 
 main(){
-    
+    trap cleanup EXIT SIGINT SIGTERM
+
+
+    lock_script
     setup_logging
     log "INFO" "Backup script started"
     banner
     read_config
     log "INFO" "Backup script finished"
-
+    
 }
 
 
