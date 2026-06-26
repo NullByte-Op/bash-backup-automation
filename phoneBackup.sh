@@ -2,27 +2,31 @@
 
 
 
-if [ -t 1 ];then
-    IS_TERMINAL=true
-else
-    IS_TERMINAL=false
-fi
 
-if [ "$EUID" -eq 0 ];then
-    LOG_DIR="/var/log/backups"
-else
-    LOG_DIR="$HOME/.local/var/backups"
-fi
+bootstrap(){
 
-LOG_FILE="$LOG_DIR/backup_script.log"
-LOCK_FILE="/tmp/phoneBackup.lock"
+    # Terminal detection
+    if [ -t 1 ];then
+        IS_TERMINAL=true
+    else
+        IS_TERMINAL=false
+    fi
+    # Root perivilage detection
+    if [ "$EUID" -eq 0 ];then
+        LOG_DIR="/var/log/backups"
+    else
+        LOG_DIR="$HOME/.local/var/backups"
+    fi
 
-
+    LOG_FILE="$LOG_DIR/backup_script.log"
+    LOCK_FILE="/tmp/phoneBackup.lock"
+    CONFIG_DIR="$HOME/bin/scripts/backup_script/"
+}
 
 
 echo_terminal(){
     if $IS_TERMINAL;then
-        echo $1
+        echo "$1"
     fi
 }
 
@@ -61,6 +65,57 @@ log(){
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
     echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
+}
+
+rotate_logs_fallback(){
+
+    local max_size=1048576
+    local max_backups=3
+
+    if [ ! -f "$LOG_FILE" ];then
+        return 0
+    fi
+
+    local current_size=$(stat -c%s "$LOG_FILE")
+    
+    if [ "$current_size" -gt "$max_size" ];then
+        echo_terminal "[*] Logrotate tool not found. Using fallback log rotation ..."
+
+        # Remove old backup log
+        rm -f "$LOG_FILE.$max_backups"
+
+
+        # rotate old file
+        for ((i=$((max_backups-1)); i>=1; i--));do
+            if [ -f "$LOG_FILE.$i" ];then
+                mv "$LOG_FILE.$i" "$LOG_FILE.$((i+1))"
+            fi
+        done
+
+        # Change current file to number 1
+        mv "$LOG_FILE" "$LOG_FILE.1"
+        touch "$LOG_FILE"
+        log "INFO" "Fallback log rotation completed."
+    fi
+
+}
+
+manage_logs(){
+    
+    # PATH of log rotation config file
+    local custom_logrotate_conf="$HOME/.local/var/backups/phone_backup.conf"
+
+    # Check logrotate and config file
+    if command -v logrotate >/dev/null 2>&1 &&  [ -f "$custom_logrotate_conf" ];then
+
+        echo_terminal "[+] System logrotate detected and configured. System will handle logs."
+
+        logrotate -s "$HOME/.local/var/backups/logrotate.status" "$custom_logrotate_conf"
+    
+    else
+        # using our log rotate
+        rotate_logs_fallback
+    fi
 }
 
 banner(){    
@@ -112,7 +167,7 @@ check_host(){
 
     if [ $? != 0 ];then
         log "ERROR" "Connection refused to $ip:$port"
-        return 1
+        exit 1
     else
         log "INFO" "$ip:$port connected."
         return 0
@@ -120,24 +175,42 @@ check_host(){
 
 }
 
+validate_yaml(){
+    local config_file=$1
+
+    # Read all config file 
+    yq "." $config_file > /dev/null 2>&1
+
+    if [ $? -ne 0 ];then
+        log "ERROR" "Invalid YAML syntax in file : $config_file"
+        return 1
+    else
+        return 0
+    fi
+}
+
 process_configs(){
     
     local config_file=$1
 
-    echo_terminal "[*] Proccessing [$1]"
-
-    general_title=$(jq -r '.title' $config_file )
-    titles=$(jq -r 'to_entries[] | select(.value | type == "object") | .key' $config_file)
-    ip=$(jq -r '.ip' $config_file)
-    username=$(jq -r '.username' $config_file)
-    port=$(jq -r '.port' $config_file)
+    echo_terminal "[*] Proccessing [$config_file]"
     
+    # Extract content in .yaml file
+    general_title=$(yq '.title' $config_file )
+    ip=$(yq -r '.ip' $config_file)
+    username=$(yq -r '.username' $config_file)
+    port=$(yq -r '.port' $config_file)
+    
+    # Extract directory name 
+    titles=$(yq '.backups | keys []' $config_file)
+
     # Check IP and PORT
     check_host $ip $port
 
     for title in ${titles[@]};do
-        src=$(jq -r ".\"$title\".src" $config_file)
-        dst=$(jq -r ".\"$title\".dst" $config_file)
+        src=$(yq -r ".backups.$title.src" $config_file)
+        dst=$(yq -r ".backups.$title.dst" $config_file)
+
         get_backup $general_title $title $src $dst $ip $username $port
     done
 }
@@ -145,19 +218,26 @@ process_configs(){
 read_config(){
     
     shopt -s nullglob
-    local json_files=( /home/gameover/bin/scripts/backup_script/*.json )
+    local yaml_files=( /home/gameover/bin/scripts/backup_script/*.yaml )
     
 
-    if [ ${#json_files[@]} -eq 0 ];then
-        echo_terminal "[0] Json file found."
+    if [ ${#yaml_files[@]} -eq 0 ];then
+        echo_terminal "[0] YAML file found."
         shopt -u nullglob
         exit 1
     else    
-        echo_terminal "[*] Found ${#json_files[@]} file"
+        echo_terminal "[*] Found ${#yaml_files[@]} file"
     fi
 
-    for name in ${json_files[@]};do
-       process_configs "$name"
+    for name in ${yaml_files[@]};do
+        
+        # Check yaml syntax is ok or not:
+        if validate_yaml "$name"; then
+            process_configs "$name"
+
+        else
+            echo_terminal "[!] Skipping corrupted file: $name"
+        fi
     done
 
     shopt -u nullglob
@@ -165,14 +245,18 @@ read_config(){
 
 
 main(){
-    trap cleanup EXIT SIGINT SIGTERM
+    bootstrap
+    banner
 
+    trap cleanup EXIT SIGINT SIGTERM
 
     lock_script
     setup_logging
+    manage_logs
     log "INFO" "Backup script started"
-    banner
+
     read_config
+    
     log "INFO" "Backup script finished"
     
 }
