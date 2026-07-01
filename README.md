@@ -22,15 +22,14 @@ The script operates through a straightforward sequential workflow:
 
 ## Installation
 
-The following system dependencies are required:
-* `bash`
-* `rsync`
-* `yq`
-* `nc` (netcat)
+The following system dependencies are required for installing that:
+‍‍‍``` sudo apt install yq netcat rsync ```
 
 Grant executable permissions to the script:
 ```bash
+git clone https://github.com/NullByte-Op/Backup-script && cd Backup-script/
 chmod +x phoneBackup.sh
+./phoneBackup.sh
 ```
 
 ## Configuration
