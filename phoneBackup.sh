@@ -1,4 +1,5 @@
-#!/bin/bash 
+#!/bin/bash
+
 
 
 
@@ -24,6 +25,43 @@ bootstrap(){
 }
 
 
+dependency_check(){
+    local req_file="$CONFIG_DIR/requirements"
+    local missing_tools=0
+
+    if [ ! -f "$req_file" ];then
+        echo_terminal "[-] requirements file not found at: $req_file."
+        log "ERROR" "Requirements file are missing: $req_file"
+        exit 1
+    fi
+
+    while IFS= read -r tool; do
+        
+        # trim output
+        tool=$(echo "$tool"|xargs)
+        
+        # continue if tool name is zero or start with #
+        [[ -z "$tool" || "$tool" =~ ^# ]] && continue
+
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            echo_terminal "[-] Missing required tool: $tool"
+            log "ERROR" "Missing dependency : $tool"
+            ((missing_tools++))
+        fi
+    done < "$req_file"
+
+    if [ "$missing_tools" -gt 0 ]; then
+        echo_terminal "ERROR: $missing_tools required tool(s) are missing! please install them first."
+         
+        log "ERROR" "Dependency check failed. Missing  $missing_tools tools. "
+        exit 1
+    fi
+
+    echo_terminal "[+] All required tools are installed."
+    log "INFO" "All dependency are satisfied."
+
+}
+
 echo_terminal(){
     if $IS_TERMINAL;then
         echo "$1"
@@ -36,12 +74,12 @@ cleanup(){
 }
 
 lock_script(){
-    
+
     if [ -f $LOCK_FILE ];then
         lock_pid=$(cat $LOCK_FILE)
         echo_terminal "Error: Script is already running under PID: $lock_pid"
         log "ERROR" "[-] Script is already running under PID: $lock_pid"
-        trap - EXIT SIGINT SIGTERM 
+        trap - EXIT SIGINT SIGTERM
         exit 1
     fi
 
@@ -50,7 +88,7 @@ lock_script(){
 
 setup_logging(){
     mkdir -p "$LOG_DIR"
-    
+
 
     if ! touch "$LOG_FILE";then
         echo "ERROR : Cannot create log directory at $LOG_DIR"
@@ -77,7 +115,7 @@ rotate_logs_fallback(){
     fi
 
     local current_size=$(stat -c%s "$LOG_FILE")
-    
+
     if [ "$current_size" -gt "$max_size" ];then
         echo_terminal "[*] Logrotate tool not found. Using fallback log rotation ..."
 
@@ -101,7 +139,7 @@ rotate_logs_fallback(){
 }
 
 manage_logs(){
-    
+
     # PATH of log rotation config file
     local custom_logrotate_conf="$HOME/.local/var/backups/phone_backup.conf"
 
@@ -111,14 +149,14 @@ manage_logs(){
         echo_terminal "[+] System logrotate detected and configured. System will handle logs."
 
         logrotate -s "$HOME/.local/var/backups/logrotate.status" "$custom_logrotate_conf"
-    
+
     else
         # using our log rotate
         rotate_logs_fallback
     fi
 }
 
-banner(){    
+banner(){
     echo_terminal "*******************************"
     echo_terminal "This is a simple backup script."
     echo_terminal "*******************************"
@@ -126,7 +164,7 @@ banner(){
 
 
 get_backup(){
-    
+
     general_title=$1
     title=$2
     src=$3
@@ -156,11 +194,11 @@ get_backup(){
 
 
 check_host(){
-    
+
     local ip=$1
     local port=$2
 
-   
+
 
     if !  nc -w 5 -z "$ip" "$port" 2>/dev/null;then
         log "ERROR" "Connection refused to $ip:$port"
@@ -175,8 +213,8 @@ check_host(){
 validate_yaml(){
     local config_file=$1
 
-    # Read all config file 
-    
+    # Read all config file
+
 
     if ! yq "." "$config_file" > /dev/null 2>&1;then
         log "ERROR" "Invalid YAML syntax in file : $config_file"
@@ -187,18 +225,18 @@ validate_yaml(){
 }
 
 process_configs(){
-    
+
     local config_file=$1
 
     echo_terminal "[*] Proccessing [$config_file]"
-    
+
     # Extract content in .yaml file
     general_title=$(yq '.title' $config_file )
     ip=$(yq -r '.ip' $config_file)
     username=$(yq -r '.username' $config_file)
     port=$(yq -r '.port' $config_file)
-    
-    # Extract directory name 
+
+    # Extract directory name
     titles=$(yq '.backups | keys []' $config_file)
 
     # Check IP and PORT
@@ -213,21 +251,21 @@ process_configs(){
 }
 
 read_config(){
-    
+
     shopt -s nullglob
     local yaml_files=( /home/gameover/bin/scripts/backup_script/*.yaml )
-    
+
 
     if [ ${#yaml_files[@]} -eq 0 ];then
         echo_terminal "[0] YAML file found."
         shopt -u nullglob
         exit 1
-    else    
+    else
         echo_terminal "[*] Found ${#yaml_files[@]} file"
     fi
 
     for name in ${yaml_files[@]};do
-        
+
         # Check yaml syntax is ok or not:
         if validate_yaml "$name"; then
             process_configs "$name"
@@ -246,16 +284,16 @@ main(){
     banner
 
     trap cleanup EXIT SIGINT SIGTERM
-
+    dependency_check
     lock_script
     setup_logging
     manage_logs
     log "INFO" "Backup script started"
 
     read_config
-    
+
     log "INFO" "Backup script finished"
-    
+
 }
 
 

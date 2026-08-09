@@ -1,0 +1,6 @@
+# Required tools
+nc       
+ssh
+rsync
+yq
+logrotate
