@@ -182,7 +182,7 @@ get_backup(){
 
     # Starting backup
 
-    if rsync -a --partial -e "ssh -p $port" "${username}@${ip}:${src}" "$dst"; then
+    if rsync -a --partial -e "ssh -p $port -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "${username}@${ip}:${src}" "$dst"; then
         log "INFO" "Backup completed successfully for [$title]"
         return 0
     else
@@ -195,7 +195,7 @@ get_backup(){
 
 check_host(){
 
-    local ip=$1
+    ip=$1
     local port=$2
 
     if [ "$ip" == "gateway" ];then
