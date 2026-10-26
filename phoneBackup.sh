@@ -198,9 +198,13 @@ check_host(){
     local ip=$1
     local port=$2
 
-
-
+    if [ "$ip" == "gateway" ];then
+        ip=$(gateway)
+    fi
     if !  nc -w 5 -z "$ip" "$port" 2>/dev/null;then
+
+        echo_terminal "[-] ERROR: Connection refused to $ip:$port"
+
         log "ERROR" "Connection refused to $ip:$port"
         exit 1
     else
