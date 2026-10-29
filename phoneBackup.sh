@@ -1,9 +1,6 @@
 #!/bin/bash
 
 
-
-
-
 bootstrap(){
 
     # Terminal detection
@@ -24,7 +21,63 @@ bootstrap(){
     CONFIG_DIR="$HOME/bin/scripts/backup_script/"
 }
 
+parse_arguments(){
+    ip=""
+    port=""
+    username=""
+    verbose=false
 
+    if [[ $# -eq 0 ]];then
+        return 0
+    fi
+
+    while [[ $# -gt 0 ]];do
+        case $1 in
+            -h | --help)
+            help
+            exit 0
+            ;;
+            -i | --ip)
+            ip=$2
+            shift 2
+            ;;
+            -p | --port)
+            port=$2
+            shift 2
+            ;;
+            -u | --username)
+            username=$2
+            shift 2
+            ;;
+            -v | --verbose)
+            verbose=true
+            shift
+            ;;
+            -l | --logfile)
+            LOG_FILE=$2
+            shift 2
+            ;;
+            -c | --config)
+            config_file=$2
+            shift 2
+            ;;
+            -d | --dir)
+            CONFIG_DIR=$2
+            shift 2
+            ;;
+            *)
+                echo "[-] Unknown command. $1"
+                help
+                exit 1
+            ;;
+        esac
+    done
+}
+
+
+help() {
+    echo "help"
+}
 dependency_check(){
     local req_file="$CONFIG_DIR/requirements"
     local missing_tools=0
@@ -36,10 +89,10 @@ dependency_check(){
     fi
 
     while IFS= read -r tool; do
-        
+
         # trim output
         tool=$(echo "$tool"|xargs)
-        
+
         # continue if tool name is zero or start with #
         [[ -z "$tool" || "$tool" =~ ^# ]] && continue
 
@@ -52,7 +105,7 @@ dependency_check(){
 
     if [ "$missing_tools" -gt 0 ]; then
         echo_terminal "ERROR: $missing_tools required tool(s) are missing! please install them first."
-         
+
         log "ERROR" "Dependency check failed. Missing  $missing_tools tools. "
         exit 1
     fi
@@ -182,7 +235,7 @@ get_backup(){
 
     # Starting backup
 
-    if rsync -a --partial -e "ssh -p $port -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "${username}@${ip}:${src}" "$dst"; then
+    if rsync -a --partial -e "ssh -p $port -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "${username}@${ip}:${src}" "$dst"; then
         log "INFO" "Backup completed successfully for [$title]"
         return 0
     else
@@ -257,7 +310,7 @@ process_configs(){
 read_config(){
 
     shopt -s nullglob
-    local yaml_files=( /home/gameover/bin/scripts/backup_script/*.yaml )
+    local yaml_files=( "$CONFIG_DIR"*.yaml )
 
 
     if [ ${#yaml_files[@]} -eq 0 ];then
@@ -285,6 +338,7 @@ read_config(){
 
 main(){
     bootstrap
+    parse_arguments "$@"
     banner
 
     trap cleanup EXIT SIGINT SIGTERM
@@ -294,11 +348,22 @@ main(){
     manage_logs
     log "INFO" "Backup script started"
 
-    read_config
+    if [[ -n "$config_file" ]];then
 
+        echo_terminal "[*] Processing single config file: $config_file"
+        if validate_yaml "$config_file";then
+            process_configs "$config_file"
+        else
+            echo_terminal "[!] Error: Specified config file is invalid or corrupted!"
+            log "ERROR" "Skipping invalid config file: $config_file"
+            exit 1
+        fi
+    else
+        read_config
+    fi
     log "INFO" "Backup script finished"
 
 }
 
 
-main
+main "$@"
